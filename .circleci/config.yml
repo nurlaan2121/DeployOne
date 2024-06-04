@@ -1,42 +1,104 @@
-# This config was automatically generated from your source code
-# Stacks detected: deps:java:.,tool:gradle:
 version: 2.1
+
+parameters:
+  docker-container:
+    type: string
+    default: "test"
+
 jobs:
-  test-java:
+  install-docker-if-not-exists:
     docker:
-      - image: cimg/openjdk:17.0
+      - image: circleci/node:14
+    steps:
+      - run:
+          name: Install SSH And Configure
+          command: |
+            echo $SSH_PRIVATE_KEY | base64 --decode > ./privateKey.pem
+            chmod 400 privateKey.pem
+      - run:
+          name: Install Docker If Not Exists
+          command: |
+            ssh -o "StrictHostKeyChecking=no" -i ./privateKey.pem ubuntu@$HOST '
+            if [[ ! $(sudo docker -v) ]]; then
+               sudo snap install docker
+            fi'
+  build-image:
+    docker:
+      - image: docker:20.10.9
     steps:
       - checkout
+      - setup_remote_docker
       - run:
-          name: Calculate cache key
-          command: |-
-            find . -name 'pom.xml' -o -name 'gradlew*' -o -name '*.gradle*' | \
-                    sort | xargs cat > /tmp/CIRCLECI_CACHE_KEY
-      - restore_cache:
-          key: cache-{{ checksum "/tmp/CIRCLECI_CACHE_KEY" }}
+          name: Build Docker Image
+          command: |
+            docker build -t << pipeline.parameters.docker-container >>:latest .
       - run:
-          command: ./gradlew check
-      - store_test_results:
-          path: build/test-results
-      - save_cache:
-          key: cache-{{ checksum "/tmp/CIRCLECI_CACHE_KEY" }}
+          name: Compress Docker Image
+          command: |
+            docker save << pipeline.parameters.docker-container >>:latest | gzip > << pipeline.parameters.docker-container >>.tar.gz
+      - run:
+          name: Update Docker-compose.yml
+          command: |
+            sed -i 's@#image@<< pipeline.parameters.docker-container >>:latest@g' docker-compose.yml
+      - run: ls -lh
+      - persist_to_workspace:
+          root: .
           paths:
-            - ~/.gradle/caches
-      - store_artifacts:
-          path: build/reports
-  deploy:
-    # This is an example deploy job, not actually used by the workflow
+            - << pipeline.parameters.docker-container >>.tar.gz
+            - docker-compose.yml
+  transfer-and-run:
     docker:
-      - image: cimg/base:stable
+      - image: circleci/node:14
     steps:
-      # Replace this with steps to deploy to users
+      - attach_workspace:
+          at: .
       - run:
-          name: deploy
-          command: '#e.g. ./deploy.sh'
+          name: Install SSH And Configure
+          command: |
+            echo $SSH_PRIVATE_KEY | base64 --decode > ./privateKey.pem
+            chmod 400 privateKey.pem
+      - run:
+          name: Stop Remote Docker-Compose
+          command: |
+            ssh -o "StrictHostKeyChecking=no" -i ./privateKey.pem ubuntu@$HOST '
+            if [[ -e ./docker-compose.yml ]]; then
+                if [[ $(sudo docker-compose -f ./docker-compose.yml ps -q) ]]; then
+                    sudo docker-compose down --rmi="all"
+                fi
+                sudo rm docker-compose.yml
+            fi'
+      - run:
+          name: Transfer Files
+          command: |
+            scp -o "StrictHostKeyChecking=no" -i ./privateKey.pem ./<< pipeline.parameters.docker-container >>.tar.gz ./docker-compose.yml ubuntu@$HOST:~/
+      - run:
+          name: Decompress Docker Image | Run Compose
+          command: |
+            ssh -o "StrictHostKeyChecking=no" -i ./privateKey.pem ubuntu@$HOST '
+            sudo gunzip -c ./<< pipeline.parameters.docker-container >>.tar.gz | sudo docker load
+            sudo rm ./<< pipeline.parameters.docker-container >>.tar.gz
+            sudo docker-compose up -d
+            '
+
 workflows:
-  build-and-test:
+  deploy:
     jobs:
-      - test-java
-    # - deploy:
-    #     requires:
-    #       - test-java
+      - install-docker-if-not-exists:
+          filters:
+            branches:
+              only:
+                - master
+      - build-image:
+          requires:
+            - install-docker-if-not-exists
+          filters:
+            branches:
+              only:
+                - master
+      - transfer-and-run:
+          requires:
+            - build-image
+          filters:
+            branches:
+              only:
+                - master
