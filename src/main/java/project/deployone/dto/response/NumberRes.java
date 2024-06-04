@@ -8,8 +8,8 @@ import lombok.*;
 @NoArgsConstructor
 @AllArgsConstructor
 public class NumberRes {
-    private Long id;
-    private int num1;
-    private int num2;
-    private char operation;
+     Long id;
+     int num1;
+     int num2;
+     char operation;
 }

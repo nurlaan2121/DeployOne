@@ -39,8 +39,8 @@ public class NumberServiceImpl implements NumberService {
     public List<NumberRes> res() {
         List<Number> all = numberRepo.findAll();
         List<NumberRes> res = new ArrayList<>();
-        for (int i = 0; i < all.size(); i++) {
-            res.add(NumberRes.builder().build());
+        for (Number number : all) {
+            res.add(NumberRes.builder().id(number.getId()).num1(number.getNum1()).num2(number.getNum2()).operation(number.getOperation()).build());
         }
         return res;
     }
