@@ -23,5 +23,9 @@ public class NumberApi {
     public Long add(@RequestParam int num1,@RequestParam int num2){
         return numberService.add(num1,num2);
     }
+    @PostMapping("/minus")
+    public Long minus(@RequestParam int num1,@RequestParam int num2){
+        return numberService.minus(num1,num2);
+    }
 
 }
