@@ -19,4 +19,14 @@ public class NumberServiceImpl implements NumberService {
         numberRepo.save(number);
         return (long) (num1 + num2);
     }
+
+    @Override
+    public Long minus(int num1, int num2) {
+        Number number = new Number();
+        number.setOperation('-');
+        number.setNum1(num1);
+        number.setNum2(num2);
+        numberRepo.save(number);
+        return (long) (num1 - num2);
+    }
 }
